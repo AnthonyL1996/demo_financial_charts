@@ -1,21 +1,17 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, ColorType } from 'lightweight-charts';
+import { useEffect, useRef } from 'react';
+import { createChart, IChartApi, ColorType, CrosshairMode } from 'lightweight-charts';
 import { Paper, Group, Button, Stack, Text } from '@mantine/core';
 import { IconZoomIn, IconZoomOut, IconZoomCancel } from '@tabler/icons-react';
 import type { OHLCVData, Signal } from '@/types';
+import type { IndicatorSettings } from './ChartControls';
 
 interface CandlestickChartProps {
   data: OHLCVData[];
   ticker?: string;
   height?: number;
-  showVolume?: boolean;
-  indicators?: {
-    ma20?: boolean;
-    ma50?: boolean;
-    ma200?: boolean;
-  };
+  indicators: IndicatorSettings;
   signals?: Signal[];
 }
 
@@ -23,14 +19,11 @@ export function CandlestickChart({
   data,
   ticker,
   height = 500,
-  showVolume = true,
-  indicators = { ma20: true, ma50: true, ma200: true },
+  indicators,
   signals = [],
 }: CandlestickChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
-  const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
 
   useEffect(() => {
     if (!chartContainerRef.current || data.length === 0) return;
@@ -44,11 +37,11 @@ export function CandlestickChart({
         textColor: '#C1C2C5',
       },
       grid: {
-        vertLines: { color: '#2C2E33' },
-        horzLines: { color: '#2C2E33' },
+        vertLines: { color: indicators.grid ? '#2C2E33' : 'transparent' },
+        horzLines: { color: indicators.grid ? '#2C2E33' : 'transparent' },
       },
       crosshair: {
-        mode: 1,
+        mode: indicators.crosshair ? CrosshairMode.Normal : CrosshairMode.Hidden,
         vertLine: {
           color: '#758BFD',
           width: 1,
@@ -74,17 +67,6 @@ export function CandlestickChart({
 
     chartRef.current = chart;
 
-    // Add candlestick series
-    const candlestickSeries = chart.addCandlestickSeries({
-      upColor: '#26A69A',
-      downColor: '#EF5350',
-      borderVisible: false,
-      wickUpColor: '#26A69A',
-      wickDownColor: '#EF5350',
-    });
-
-    candlestickSeriesRef.current = candlestickSeries;
-
     // Convert data to lightweight-charts format
     const chartData = data.map((d) => ({
       time: d.time as string,
@@ -94,10 +76,19 @@ export function CandlestickChart({
       close: d.close,
     }));
 
+    // Add candlestick series
+    const candlestickSeries = chart.addCandlestickSeries({
+      upColor: '#26A69A',
+      downColor: '#EF5350',
+      borderVisible: false,
+      wickUpColor: '#26A69A',
+      wickDownColor: '#EF5350',
+    });
+
     candlestickSeries.setData(chartData);
 
     // Add volume histogram if enabled
-    if (showVolume) {
+    if (indicators.volume) {
       const volumeSeries = chart.addHistogramSeries({
         color: '#26a69a',
         priceFormat: {
@@ -105,8 +96,6 @@ export function CandlestickChart({
         },
         priceScaleId: 'volume',
       });
-
-      volumeSeriesRef.current = volumeSeries;
 
       chart.priceScale('volume').applyOptions({
         scaleMargins: {
@@ -124,14 +113,14 @@ export function CandlestickChart({
       volumeSeries.setData(volumeData);
     }
 
-    // Add Moving Averages
+    // Add Simple Moving Averages
     if (indicators.ma20) {
       const ma20Series = chart.addLineSeries({
         color: '#4C6EF5',
         lineWidth: 2,
         title: 'MA 20',
       });
-      ma20Series.setData(calculateMA(chartData, 20));
+      ma20Series.setData(calculateSMA(chartData, 20));
     }
 
     if (indicators.ma50) {
@@ -140,7 +129,7 @@ export function CandlestickChart({
         lineWidth: 2,
         title: 'MA 50',
       });
-      ma50Series.setData(calculateMA(chartData, 50));
+      ma50Series.setData(calculateSMA(chartData, 50));
     }
 
     if (indicators.ma200) {
@@ -149,7 +138,59 @@ export function CandlestickChart({
         lineWidth: 2,
         title: 'MA 200',
       });
-      ma200Series.setData(calculateMA(chartData, 200));
+      ma200Series.setData(calculateSMA(chartData, 200));
+    }
+
+    // Add Exponential Moving Averages
+    if (indicators.ema12) {
+      const ema12Series = chart.addLineSeries({
+        color: '#12B886',
+        lineWidth: 2,
+        title: 'EMA 12',
+      });
+      ema12Series.setData(calculateEMA(chartData, 12));
+    }
+
+    if (indicators.ema26) {
+      const ema26Series = chart.addLineSeries({
+        color: '#15AABF',
+        lineWidth: 2,
+        title: 'EMA 26',
+      });
+      ema26Series.setData(calculateEMA(chartData, 26));
+    }
+
+    // Add Bollinger Bands
+    if (indicators.bollingerBands) {
+      const bollingerData = calculateBollingerBands(chartData, 20, 2);
+
+      // Upper band
+      const upperBandSeries = chart.addLineSeries({
+        color: '#9775FA',
+        lineWidth: 1,
+        lineStyle: 2, // Dashed
+        title: 'BB Upper',
+      });
+      upperBandSeries.setData(bollingerData.upper);
+
+      // Middle band (same as MA20 but shown separately if MA20 is off)
+      if (!indicators.ma20) {
+        const middleBandSeries = chart.addLineSeries({
+          color: '#9775FA',
+          lineWidth: 1,
+          title: 'BB Middle',
+        });
+        middleBandSeries.setData(bollingerData.middle);
+      }
+
+      // Lower band
+      const lowerBandSeries = chart.addLineSeries({
+        color: '#9775FA',
+        lineWidth: 1,
+        lineStyle: 2, // Dashed
+        title: 'BB Lower',
+      });
+      lowerBandSeries.setData(bollingerData.lower);
     }
 
     // Add signal markers
@@ -182,7 +223,7 @@ export function CandlestickChart({
       window.removeEventListener('resize', handleResize);
       chart.remove();
     };
-  }, [data, height, showVolume, indicators, signals]);
+  }, [data, height, indicators, signals]);
 
   const handleZoomIn = () => {
     if (chartRef.current) {
@@ -258,8 +299,14 @@ export function CandlestickChart({
   );
 }
 
-// Helper function to calculate moving average
-function calculateMA(data: any[], period: number): any[] {
+// ============================================================================
+// Helper Functions - Technical Indicators
+// ============================================================================
+
+/**
+ * Calculate Simple Moving Average (SMA)
+ */
+function calculateSMA(data: any[], period: number): any[] {
   const result: any[] = [];
 
   for (let i = 0; i < data.length; i++) {
@@ -279,4 +326,94 @@ function calculateMA(data: any[], period: number): any[] {
   }
 
   return result;
+}
+
+/**
+ * Calculate Exponential Moving Average (EMA)
+ */
+function calculateEMA(data: any[], period: number): any[] {
+  const result: any[] = [];
+  const multiplier = 2 / (period + 1);
+
+  // First EMA value is SMA
+  let ema = 0;
+  for (let i = 0; i < period; i++) {
+    ema += data[i].close;
+  }
+  ema = ema / period;
+
+  result.push({
+    time: data[period - 1].time,
+    value: ema,
+  });
+
+  // Calculate EMA for remaining values
+  for (let i = period; i < data.length; i++) {
+    ema = (data[i].close - ema) * multiplier + ema;
+    result.push({
+      time: data[i].time,
+      value: ema,
+    });
+  }
+
+  return result;
+}
+
+/**
+ * Calculate Bollinger Bands
+ */
+function calculateBollingerBands(
+  data: any[],
+  period: number,
+  stdDev: number
+): {
+  upper: any[];
+  middle: any[];
+  lower: any[];
+} {
+  const upper: any[] = [];
+  const middle: any[] = [];
+  const lower: any[] = [];
+
+  for (let i = 0; i < data.length; i++) {
+    if (i < period - 1) {
+      continue;
+    }
+
+    // Calculate SMA (middle band)
+    let sum = 0;
+    for (let j = 0; j < period; j++) {
+      sum += data[i - j].close;
+    }
+    const sma = sum / period;
+
+    // Calculate standard deviation
+    let squaredDiffSum = 0;
+    for (let j = 0; j < period; j++) {
+      const diff = data[i - j].close - sma;
+      squaredDiffSum += diff * diff;
+    }
+    const standardDeviation = Math.sqrt(squaredDiffSum / period);
+
+    // Calculate bands
+    const upperBand = sma + stdDev * standardDeviation;
+    const lowerBand = sma - stdDev * standardDeviation;
+
+    upper.push({
+      time: data[i].time,
+      value: upperBand,
+    });
+
+    middle.push({
+      time: data[i].time,
+      value: sma,
+    });
+
+    lower.push({
+      time: data[i].time,
+      value: lowerBand,
+    });
+  }
+
+  return { upper, middle, lower };
 }

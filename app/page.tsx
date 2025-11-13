@@ -1,13 +1,35 @@
 'use client';
 
+import { useState } from 'react';
 import { Container, Grid, Title, Text, Group, Badge, Card, Stack, SimpleGrid } from '@mantine/core';
 import { IconTrendingUp, IconTrendingDown, IconClock, IconChartLine } from '@tabler/icons-react';
 import { CandlestickChart } from '@/components/charts/CandlestickChart';
+import { ChartControls, type IndicatorSettings } from '@/components/charts/ChartControls';
 import { SignalCard } from '@/components/signals/SignalCard';
 import { mockSignals, mockPortfolio, generateMockOHLCVData } from '@/lib/mock/mockData';
 import { formatCurrency, formatPercent } from '@/lib/utils/formatters';
 
 export default function DashboardPage() {
+  // Indicator state management
+  const [indicators, setIndicators] = useState<IndicatorSettings>({
+    ma20: true,
+    ma50: true,
+    ma200: true,
+    bollingerBands: false,
+    volume: true,
+    ema12: false,
+    ema26: false,
+    grid: true,
+    crosshair: true,
+  });
+
+  const handleIndicatorChange = (indicator: keyof IndicatorSettings, value: boolean) => {
+    setIndicators((prev) => ({
+      ...prev,
+      [indicator]: value,
+    }));
+  };
+
   // Use mock data for now
   const activeSignals = mockSignals.filter((s) => s.status === 'ACTIVE');
   const longSignals = activeSignals.filter((s) => s.type === 'LONG');
@@ -119,47 +141,46 @@ export default function DashboardPage() {
         {/* Main Content */}
         <Grid>
           {/* Chart Section */}
-          <Grid.Col span={{ base: 12, md: 8 }}>
-            <Stack gap="md">
-              <Card withBorder padding="lg">
-                <Title order={3} mb="md">
-                  Market Overview - AAPL
-                </Title>
-                <CandlestickChart
-                  data={chartData}
-                  ticker="AAPL"
-                  height={500}
-                  showVolume={true}
-                  indicators={{
-                    ma20: true,
-                    ma50: true,
-                    ma200: true,
-                  }}
-                  signals={mockSignals.filter((s) => s.ticker === 'AAPL')}
-                />
-              </Card>
-            </Stack>
+          <Grid.Col span={{ base: 12, lg: 9 }}>
+            <Card withBorder padding="lg">
+              <Title order={3} mb="md">
+                Market Overview - AAPL
+              </Title>
+              <CandlestickChart
+                data={chartData}
+                ticker="AAPL"
+                height={500}
+                indicators={indicators}
+                signals={mockSignals.filter((s) => s.ticker === 'AAPL')}
+              />
+            </Card>
           </Grid.Col>
 
-          {/* Signals Section */}
-          <Grid.Col span={{ base: 12, md: 4 }}>
+          {/* Indicator Controls */}
+          <Grid.Col span={{ base: 12, lg: 3 }}>
             <Stack gap="md">
-              <Group justify="space-between" align="center">
-                <Title order={3}>Active Signals</Title>
-                <Badge color="blue">{activeSignals.length}</Badge>
-              </Group>
+              <ChartControls indicators={indicators} onIndicatorChange={handleIndicatorChange} />
 
-              {activeSignals.length > 0 ? (
-                activeSignals.map((signal) => (
-                  <SignalCard key={signal.id} signal={signal} />
-                ))
-              ) : (
-                <Card withBorder padding="lg">
-                  <Text c="dimmed" ta="center">
-                    No active signals at the moment
-                  </Text>
-                </Card>
-              )}
+              <div>
+                <Group justify="space-between" align="center" mb="md">
+                  <Title order={3}>Active Signals</Title>
+                  <Badge color="blue">{activeSignals.length}</Badge>
+                </Group>
+
+                {activeSignals.length > 0 ? (
+                  <Stack gap="md">
+                    {activeSignals.map((signal) => (
+                      <SignalCard key={signal.id} signal={signal} />
+                    ))}
+                  </Stack>
+                ) : (
+                  <Card withBorder padding="lg">
+                    <Text c="dimmed" ta="center">
+                      No active signals at the moment
+                    </Text>
+                  </Card>
+                )}
+              </div>
             </Stack>
           </Grid.Col>
         </Grid>
