@@ -39,6 +39,7 @@ services:
       DB_NAME: ${DB_NAME:-jdb_trading}
       DB_USER: ${DB_USER:-jdb_user}
       DB_PASSWORD: ${DB_PASSWORD:-changeme123}
+      ML_SERVICE_URL: http://ml-service:5000
     depends_on:
       postgres:
         condition: service_healthy
@@ -51,10 +52,43 @@ services:
     networks:
       - jdb-network
 
+  # ML Service (Python)
+  ml-service:
+    build:
+      context: ../ml_service
+      dockerfile: Dockerfile
+    container_name: jdb-ml-service
+    restart: unless-stopped
+    ports:
+      - "${ML_PORT:-5000}:5000"
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: 5000
+      DEBUG: ${ML_DEBUG:-False}
+      MODEL_VERSION: v1
+    volumes:
+      - ml_data:/app/data
+      - ml_models:/app/models
+      - ml_logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - jdb-network
+
 networks:
   jdb-network:
     driver: bridge
 
 volumes:
   postgres_data:
+    driver: local
+  ml_data:
+    driver: local
+  ml_models:
+    driver: local
+  ml_logs:
     driver: local
