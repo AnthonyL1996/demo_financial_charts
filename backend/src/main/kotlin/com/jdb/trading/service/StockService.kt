@@ -20,7 +20,8 @@ class StockService(
     private val yahooFinanceService: YahooFinanceService,
     private val stockPriceService: StockPriceService,
     private val technicalAnalysisService: TechnicalAnalysisService,
-    private val stockRepository: StockRepository
+    private val stockRepository: StockRepository,
+    private val mlSignalService: MLSignalService
 ) {
 
     /**
@@ -46,6 +47,14 @@ class StockService(
             getDefaultTechnicals()
         }
 
+        // Get ML signals (if ML service is available)
+        val mlSignals = try {
+            mlSignalService.generateMultiTimeframeSignals(ticker)
+        } catch (e: Exception) {
+            logger.debug(e) { "ML signals unavailable for $ticker" }
+            null
+        }
+
         return StockDto(
             ticker = quote.ticker,
             companyName = quote.companyName,
@@ -54,7 +63,8 @@ class StockService(
             volume = quote.volume,
             marketCap = quote.marketCap,
             technicals = technicals,
-            activeSignals = emptyList()  // TODO: Implement in Phase 3
+            activeSignals = emptyList(),  // TODO: Implement in Phase 3
+            mlSignals = mlSignals
         )
     }
 
