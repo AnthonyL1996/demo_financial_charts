@@ -54,6 +54,12 @@ yahoo-finance:
   retry-attempts: 3
   retry-delay-ms: 1000
 
+# ML Service Configuration
+ml-service:
+  url: ${ML_SERVICE_URL:http://localhost:5000}
+  enabled: ${ML_SERVICE_ENABLED:true}
+  timeout-ms: 10000  # 10 seconds
+
 # Logging
 logging:
   level:

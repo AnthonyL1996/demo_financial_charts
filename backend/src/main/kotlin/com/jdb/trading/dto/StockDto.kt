@@ -13,7 +13,8 @@ data class StockDto(
     val volume: Long,
     val marketCap: Long? = null,
     val technicals: StockTechnicalsDto,
-    val activeSignals: List<SignalDto> = emptyList()
+    val activeSignals: List<SignalDto> = emptyList(),
+    val mlSignals: MultiTimeframeSignalsDto? = null  // ML predictions (optional)
 )
 
 /**
