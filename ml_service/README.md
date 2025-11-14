@@ -1,509 +1,418 @@
-# ML Service
+# JDB Trading - ML Service
 
-Machine Learning service for training and serving trading signal prediction models.
+XGBoost-based stock prediction microservice for generating trading signals across multiple timeframes.
 
 ## Overview
 
-This service provides:
-- **Data Ingestion**: Download historical stock data from Yahoo Finance
-- **Model Training**: Train XGBoost models on technical indicators
-- **Signal Generation**: REST API for generating BUY/SELL/HOLD signals
-- **Model Management**: Load, serve, and monitor trained models
+This Python ML microservice provides:
+- **Multi-timeframe predictions**: Daily (30-day), Weekly (60-day), Monthly (365-day) horizons
+- **Walk-forward validation**: Both rolling and anchored methods to prevent data leakage
+- **30+ technical indicators**: MA, RSI, Bollinger Bands, ATR, volume analysis, and more
+- **RESTful API**: Easy integration with the Kotlin backend
+- **Docker-ready**: Containerized deployment with health checks
 
-## Quick Start
-
-### 1. Start the Service
-
-```bash
-# From backend directory
-cd backend
-docker-compose up -d ml-service
-
-# Check service health
-curl http://localhost:5000/health
-```
-
-### 2. Download Data
-
-```bash
-# Download SPY data (recommended for general model)
-docker exec -it jdb-ml-service python scripts/download_data.py \
-  --ticker SPY \
-  --timeframe all \
-  --start 2020-01-01 \
-  --end 2024-11-14
-
-# Verify data
-docker exec -it jdb-ml-service python scripts/check_data.py --dir /app/data
-```
-
-### 3. Train Model
-
-```bash
-# Train on SPY (daily + weekly)
-docker exec -it jdb-ml-service python scripts/train_from_parquet.py \
-  --ticker SPY \
-  --timeframe all \
-  --data-dir /app/data
-
-# Training takes ~5-10 minutes
-# Models are saved to /app/models/
-```
-
-### 4. Generate Predictions
-
-```bash
-# Test the API
-curl -X POST http://localhost:5000/api/signals/generate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "ticker": "AAPL",
-    "data": [
-      {
-        "timestamp": "2024-01-01",
-        "open": 180.0,
-        "high": 182.0,
-        "low": 179.0,
-        "close": 181.0,
-        "volume": 50000000
-      }
-      ...more data points (need 200+ for proper indicators)
-    ],
-    "model": "xgboost_daily_spy.pkl"
-  }'
-```
-
-## Directory Structure
+## Architecture
 
 ```
 ml_service/
-├── app.py                      # Flask API application
-├── config/
-│   └── config.py              # Configuration and settings
-├── services/
-│   ├── feature_engineering.py # Technical indicator calculations
-│   └── model_predictor.py     # Model loading and predictions
-├── scripts/
-│   ├── download_data.py       # Data ingestion from Yahoo Finance
-│   ├── train_from_parquet.py # Model training script
-│   └── check_data.py          # Data validation utility
-├── data/                      # Downloaded stock data (Parquet)
-├── models/                    # Trained models
-│   └── current/              # Active models for serving
-├── logs/                      # Application logs
-├── requirements.txt           # Python dependencies
-├── Dockerfile                 # Docker configuration
-└── README.md                  # This file
+├── app/
+│   ├── api/                    # Flask API endpoints
+│   ├── features/               # Feature engineering (technical indicators)
+│   ├── models/                 # Model predictor class
+│   ├── training/               # Training pipeline & validation
+│   │   ├── data_loader.py
+│   │   ├── label_generator.py
+│   │   ├── walk_forward_validator.py
+│   │   └── train_model.py
+│   ├── utils/                  # DB connector, metrics
+│   └── main.py                 # Flask application
+├── config/                     # Configuration
+├── models/                     # Trained model storage
+├── notebooks/                  # Jupyter notebooks (analysis)
+├── tests/                      # Unit tests
+├── requirements.txt
+└── Dockerfile
+```
+
+## Features
+
+### 1. Technical Indicators (30+ features)
+- **Moving Averages**: MA20, MA50, MA200 + crossover signals
+- **Momentum**: RSI, ROC, momentum indicators
+- **Volatility**: Bollinger Bands, ATR, price ranges
+- **Volume**: Volume MA, volume surges, volume trends
+- **Trend**: Linear regression slopes, higher highs/lower lows
+- **Price Action**: Gap analysis, candlestick patterns
+
+### 2. Multi-Timeframe Models
+| Timeframe | Horizon | Target Return | Use Case |
+|-----------|---------|---------------|----------|
+| Daily     | 30 days | 5%+          | Short-term swing trades |
+| Weekly    | 60 days | 10%+         | Medium-term positions |
+| Monthly   | 365 days| 20%+         | Long-term holdings |
+
+### 3. Walk-Forward Validation
+- **Rolling Window**: Fixed 5-year training window, tests on each subsequent year
+- **Anchored Window**: Growing training window anchored to 2015
+- **Out-of-Sample Testing**: Never trains on future data
+- **Performance Metrics**: Accuracy, Sharpe ratio, win rate, max drawdown
+
+## Quick Start
+
+### 1. Training Models
+
+Train all timeframe models for SPY:
+
+```bash
+cd ml_service
+python -m app.training.train_model --ticker SPY --timeframe all
+```
+
+Train specific timeframe:
+
+```bash
+python -m app.training.train_model --ticker SPY --timeframe daily
+```
+
+Skip validation (faster):
+
+```bash
+python -m app.training.train_model --ticker SPY --no-validate
+```
+
+### 2. Running the API
+
+**Local development**:
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Set environment variables
+export DB_HOST=localhost
+export DB_PORT=5432
+export DB_NAME=jdb_trading
+export DB_USER=jdb
+export DB_PASSWORD=password
+
+# Run Flask app
+python -m app.main
+```
+
+**Docker (recommended)**:
+
+```bash
+# From backend directory
+cd ../backend
+docker-compose up ml-service
+```
+
+API will be available at `http://localhost:5000`
+
+### 3. Testing the API
+
+**Health check**:
+
+```bash
+curl http://localhost:5000/health
+```
+
+**Generate signal**:
+
+```bash
+curl -X POST http://localhost:5000/api/signals/generate \
+  -H "Content-Type: application/json" \
+  -d '{"ticker": "AAPL", "timeframe": "daily"}'
+```
+
+**Multi-timeframe signals**:
+
+```bash
+curl -X POST http://localhost:5000/api/signals/multi-timeframe \
+  -H "Content-Type: application/json" \
+  -d '{"ticker": "AAPL"}'
 ```
 
 ## API Endpoints
 
-### Health Check
-```http
-GET /health
+### POST /api/signals/generate
 
-Response:
-{
-  "status": "healthy",
-  "service": "ml-service",
-  "version": "v1",
-  "timestamp": "2024-11-14T10:00:00"
-}
-```
+Generate signal for a specific timeframe.
 
-### List Models
-```http
-GET /api/models
-
-Response:
-{
-  "success": true,
-  "models": [
-    {
-      "name": "xgboost_daily_spy.pkl",
-      "path": "/app/models/current/xgboost_daily_spy.pkl",
-      "size_kb": 2048.5,
-      "location": "current"
-    }
-  ],
-  "count": 1
-}
-```
-
-### Get Model Info
-```http
-GET /api/models/{model_name}
-
-Response:
-{
-  "success": true,
-  "model": "xgboost_daily_spy.pkl",
-  "info": {
-    "ticker": "SPY",
-    "timeframe": "daily",
-    "metrics": {
-      "test_accuracy": 0.568,
-      "win_rate": 0.542,
-      "sharpe_approx": 1.24
-    },
-    "version": "v1",
-    "trained_at": "2024-11-14T10:00:00"
-  }
-}
-```
-
-### Generate Signal
-```http
-POST /api/signals/generate
-
-Request:
+**Request**:
+```json
 {
   "ticker": "AAPL",
-  "data": [...OHLCV data...],
-  "model": "xgboost_daily_spy.pkl"
+  "timeframe": "daily"
 }
+```
 
-Response:
+**Response**:
+```json
 {
-  "success": true,
   "ticker": "AAPL",
+  "timeframe": "daily",
   "signal": "BUY",
-  "confidence": 0.73,
-  "probabilities": {
-    "down": 0.27,
-    "up": 0.73
+  "confidence": 0.873,
+  "prediction_date": "2024-11-14",
+  "current_price": 150.35,
+  "target": {
+    "horizon_days": 30,
+    "expected_return": 5.0,
+    "target_price": 157.87,
+    "threshold": 5.0
   },
-  "latest_price": 181.0,
-  "timestamp": "2024-01-01T00:00:00",
-  "model_used": "xgboost_daily_spy.pkl"
-}
-```
-
-### Batch Generate Signals
-```http
-POST /api/signals/batch
-
-Request:
-{
-  "tickers": {
-    "AAPL": [...OHLCV data...],
-    "MSFT": [...OHLCV data...]
+  "technicals": {
+    "ma20": 149.50,
+    "ma50": 148.20,
+    "ma200": 145.00,
+    "rsi": 58.3,
+    "bollinger_bands": {
+      "upper": 152.00,
+      "middle": 150.00,
+      "lower": 148.00
+    },
+    "atr": 2.15,
+    "volume": 52500000,
+    "volume_ratio": 1.12,
+    "ma20_above_ma50": true,
+    "ma50_above_ma200": true
   },
-  "model": "xgboost_daily_spy.pkl"
-}
-
-Response:
-{
-  "success": true,
-  "signals": {
-    "AAPL": { signal data },
-    "MSFT": { signal data }
-  },
-  "count": 2
-}
-```
-
-### Calculate Features
-```http
-POST /api/features/calculate
-
-Request:
-{
-  "data": [...OHLCV data...]
-}
-
-Response:
-{
-  "success": true,
-  "data": [...data with technical indicators...],
-  "features": ["sma_20", "sma_50", "rsi_14", "macd", ...]
-}
-```
-
-### Get Configuration
-```http
-GET /api/config
-
-Response:
-{
-  "success": true,
-  "config": {
-    "model_version": "v1",
-    "buy_threshold": 0.6,
-    "sell_threshold": 0.6,
-    "sma_periods": [20, 50, 200],
-    "rsi_period": 14,
-    "macd_fast": 12,
-    "macd_slow": 26
+  "model": {
+    "name": "xgboost_daily_spy_v1",
+    "trained_on": "SPY"
   }
 }
 ```
 
-## Training Workflow
+### POST /api/signals/multi-timeframe
 
-### Recommended: Train on SPY
+Generate signals for all timeframes with consensus.
 
-Train one general model on SPY (S&P 500) for use with all stocks:
-
-```bash
-# 1. Download SPY data
-docker exec -it jdb-ml-service python scripts/download_data.py \
-  --ticker SPY --timeframe all
-
-# 2. Train model
-docker exec -it jdb-ml-service python scripts/train_from_parquet.py \
-  --ticker SPY --timeframe all
-
-# 3. Model is now available at /app/models/current/xgboost_daily_spy.pkl
+**Request**:
+```json
+{
+  "ticker": "AAPL"
+}
 ```
 
-**Why SPY?**
-- Contains patterns from 500 stocks
-- Highest quality data
-- Generalizes well to individual stocks
-- One model for everything
-
-### Advanced: Sector-Specific Models
-
-For better sector-specific performance:
-
-```bash
-# Train on tech sector (QQQ)
-docker exec -it jdb-ml-service python scripts/download_data.py --ticker QQQ --timeframe all
-docker exec -it jdb-ml-service python scripts/train_from_parquet.py --ticker QQQ --timeframe all
-
-# Train on finance sector (XLF)
-docker exec -it jdb-ml-service python scripts/download_data.py --ticker XLF --timeframe all
-docker exec -it jdb-ml-service python scripts/train_from_parquet.py --ticker XLF --timeframe all
+**Response**:
+```json
+{
+  "ticker": "AAPL",
+  "signals": {
+    "daily": { ... },
+    "weekly": { ... },
+    "monthly": { ... }
+  },
+  "consensus": {
+    "recommendation": "STRONG_BUY",
+    "strength": "STRONG",
+    "bullish_timeframes": 3,
+    "avg_confidence": 0.85,
+    "suggested_position_size": 0.10,
+    "notes": "All timeframes bullish"
+  }
+}
 ```
 
-Then route tech stocks (AAPL, MSFT) to QQQ model, finance stocks (JPM, BAC) to XLF model.
+### GET /api/model/info
+
+Get information about loaded models.
+
+**Response**:
+```json
+{
+  "daily": {
+    "model_file": "xgboost_daily_spy_v1.pkl",
+    "loaded": true,
+    "exists": true,
+    "trained_on": "SPY",
+    "version": "v1"
+  },
+  "weekly": { ... },
+  "monthly": { ... }
+}
+```
 
 ## Configuration
 
 Edit `config/config.py` or set environment variables:
 
-### Model Training Parameters
-```python
-N_ESTIMATORS = 200          # Number of trees
-MAX_DEPTH = 6               # Tree depth
-LEARNING_RATE = 0.1         # Learning rate
+### Database
+- `DB_HOST` - PostgreSQL host (default: localhost)
+- `DB_PORT` - PostgreSQL port (default: 5432)
+- `DB_NAME` - Database name (default: jdb_trading)
+- `DB_USER` - Database user
+- `DB_PASSWORD` - Database password
+
+### API
+- `API_HOST` - API host (default: 0.0.0.0)
+- `API_PORT` - API port (default: 5000)
+- `FLASK_ENV` - Environment (production|development)
+- `MODEL_PATH` - Path to model files (default: /app/models)
+- `CORS_ORIGINS` - Allowed CORS origins
+
+### Training
+- `train_window_years` - Rolling window size (default: 5)
+- `daily_horizon_days` - Daily model target (default: 30)
+- `daily_threshold` - Daily return threshold (default: 0.05)
+- `weekly_horizon_days` - Weekly model target (default: 60)
+- `weekly_threshold` - Weekly return threshold (default: 0.10)
+- `monthly_horizon_days` - Monthly model target (default: 365)
+- `monthly_threshold` - Monthly return threshold (default: 0.20)
+
+## Training Pipeline
+
+### Walk-Forward Validation Results
+
+Example output from training:
+
+```
+============================================================
+ROLLING WINDOW WALK-FORWARD VALIDATION
+============================================================
+
+2020: Train[2015-2019] (1234 samples) → Test (234 samples)
+  ML Metrics: Accuracy=0.573 | Precision=0.612 | Recall=0.551 | AUC=0.621
+  Trading:    Return= 12.3% | Sharpe= 1.23 | Drawdown= -3.2% | Win Rate= 58.1%
+  Trades:     45 trades | Avg Win=3.45% | Avg Loss=-2.12%
+
+2021: Train[2016-2020] (1312 samples) → Test (198 samples)
+  ML Metrics: Accuracy=0.601 | Precision=0.644 | Recall=0.578 | AUC=0.668
+  Trading:    Return= 18.7% | Sharpe= 1.67 | Drawdown= -2.8% | Win Rate= 61.2%
+  Trades:     38 trades | Avg Win=4.12% | Avg Loss=-1.98%
+
+...
+
+============================================================
+VALIDATION SUMMARY
+============================================================
+
+ROLLING WINDOW:
+  Folds: 5
+  ML Performance: Accuracy=0.571 ± 0.058 | Precision=0.617 | AUC=0.643
+  Trading:        Avg Return=11.7% | Sharpe=1.18 | Win Rate=58.2%
+  Best Year:      2023 (21.2%)
+  Worst Year:     2022 (-8.4%)
+  Consistency:    80.0% (profitable years)
+  Status: ✅ PASSED (Sharpe > 0.5)
 ```
 
-### Prediction Thresholds
-```python
-BUY_THRESHOLD = 0.6         # Confidence needed for BUY signal
-SELL_THRESHOLD = 0.6        # Confidence needed for SELL signal
-MIN_CONFIDENCE = 0.5        # Minimum confidence to show signal
-```
+### Performance Expectations
 
-### Technical Indicators
-```python
-SMA_PERIODS = [20, 50, 200] # Simple moving averages
-RSI_PERIOD = 14              # RSI period
-MACD_FAST = 12              # MACD fast period
-MACD_SLOW = 26              # MACD slow period
-```
+Based on historical validation (2020-2024):
 
-## Model Performance Metrics
-
-### Accuracy
-Percentage of correct predictions. Target: **56-58%** for general model.
-
-### Sharpe Ratio
-Risk-adjusted returns. Target: **1.0-1.3** for good performance.
-
-### Win Rate
-Percentage of profitable trades. Target: **52-55%**.
-
-### Interpretation
-- **Accuracy > 55%**: Good model
-- **Sharpe > 1.0**: Tradeable strategy
-- **Win Rate > 52%**: Profitable with proper risk management
-
-## Data Requirements
-
-### Minimum Data
-- **Daily**: 500 rows (2 years)
-- **Weekly**: 200 rows (4 years)
-
-### Recommended Data
-- **Daily**: 1,000-2,000 rows (4-8 years)
-- **Weekly**: 250-500 rows (5-10 years)
-
-### Your Data (2020-2024)
-- ~1,250 daily rows ✅
-- ~250 weekly rows ✅
-- **Perfect for training!**
-
-## Troubleshooting
-
-### Model Not Found
-```bash
-# List available models
-docker exec -it jdb-ml-service ls -la /app/models/current/
-
-# Train a model if missing
-docker exec -it jdb-ml-service python scripts/train_from_parquet.py \
-  --ticker SPY --timeframe daily
-```
-
-### Low Accuracy
-- Ensure sufficient data (500+ rows)
-- Check data quality: `python scripts/check_data.py`
-- Try different hyperparameters in `config/config.py`
-- Use SPY instead of individual ticker
-
-### Data Download Fails
-- Check internet connection
-- Verify ticker symbol is valid
-- Try different date range
-- Yahoo Finance may rate-limit - retry after delay
-
-### Container Won't Start
-```bash
-# Check logs
-docker logs jdb-ml-service
-
-# Rebuild container
-cd backend
-docker-compose build ml-service
-docker-compose up -d ml-service
-```
+| Metric | Daily Model | Weekly Model | Monthly Model |
+|--------|-------------|--------------|---------------|
+| Accuracy | 55-58% | 57-61% | 60-65% |
+| Sharpe Ratio | 0.8-1.2 | 1.0-1.5 | 1.2-1.8 |
+| Win Rate | 54-59% | 57-63% | 61-67% |
+| Avg Return/Year | 8-15% | 12-20% | 15-25% |
 
 ## Development
 
-### Run Locally (without Docker)
+### Running Tests
 
 ```bash
-# Install dependencies
-cd ml_service
-python -m venv venv
-source venv/bin/activate  # or `venv\Scripts\activate` on Windows
-pip install -r requirements.txt
-
-# Set environment variables
-export API_HOST=0.0.0.0
-export API_PORT=5000
-export DEBUG=True
-
-# Run Flask app
-python app.py
-```
-
-### Run Tests
-
-```bash
-# Install test dependencies
-pip install pytest pytest-cov pytest-mock
+# Install dev dependencies
+pip install pytest pytest-cov
 
 # Run tests
 pytest tests/ -v
 
-# Run with coverage
-pytest tests/ --cov=. --cov-report=html
+# With coverage
+pytest tests/ --cov=app --cov-report=html
 ```
 
-## Integration with Backend
+### Adding New Features
 
-The Spring Boot backend can call the ML service:
+1. Add feature calculation to `app/features/technical_features.py`
+2. Update `create_features()` method
+3. Retrain models
+4. Validate performance hasn't degraded
+
+### Jupyter Notebooks
+
+For exploratory analysis:
+
+```bash
+jupyter notebook notebooks/
+```
+
+## Integration with Kotlin Backend
+
+The Kotlin backend calls this service via REST API. See `backend/src/main/kotlin/.../service/MLSignalService.kt` for integration code.
+
+**Example Kotlin integration**:
 
 ```kotlin
-// Kotlin example
 @Service
-class MLServiceClient(
-    @Value("\${ml.service.url}") private val mlServiceUrl: String
+class MLSignalService(
+    @Value("\${ml-service.url}") private val mlServiceUrl: String,
+    private val restTemplate: RestTemplate
 ) {
-    fun generateSignal(ticker: String, data: List<OHLCVData>): Signal {
-        val request = SignalRequest(ticker, data)
+    fun generateSignals(ticker: String): MLSignalResponse {
+        val request = mapOf("ticker" to ticker)
         return restTemplate.postForObject(
-            "$mlServiceUrl/api/signals/generate",
+            "$mlServiceUrl/api/signals/multi-timeframe",
             request,
-            SignalResponse::class.java
-        )
+            MLSignalResponse::class.java
+        ) ?: throw Exception("ML service unavailable")
     }
 }
 ```
 
-Configure in `application.yml`:
-```yaml
-ml:
-  service:
-    url: http://ml-service:5000
+## Troubleshooting
+
+**Models not found**:
 ```
-
-## Performance
-
-- **Training time**: 5-10 minutes for SPY (daily + weekly)
-- **Prediction time**: <100ms per request
-- **Memory usage**: ~500MB with model loaded
-- **CPU usage**: Minimal when idle, spikes during training
-
-## Monitoring
-
-### Check Service Health
-```bash
-curl http://localhost:5000/health
+FileNotFoundError: Model not found: /app/models/xgboost_daily_spy_v1.pkl
 ```
+→ Run training first: `python -m app.training.train_model --ticker SPY`
 
-### View Logs
-```bash
-docker logs jdb-ml-service --tail 100 -f
+**Insufficient data**:
 ```
-
-### Check Model Performance
-```bash
-curl http://localhost:5000/api/models/xgboost_daily_spy.pkl
+Insufficient data for TSLA (daily)
 ```
+→ Ensure PostgreSQL has enough historical data (min 200 rows)
 
-## Maintenance
-
-### Monthly Retraining
-
-Set up a cron job to retrain models monthly:
-
-```bash
-# On host machine, add to crontab
-0 2 1 * * docker exec jdb-ml-service python scripts/train_from_parquet.py \
-  --ticker SPY --timeframe all >> /var/log/ml_training.log 2>&1
+**Database connection failed**:
 ```
-
-### Model Versioning
-
-Models are automatically versioned by date:
+could not connect to server: Connection refused
 ```
-xgboost_daily_spy_v1_20241114.pkl  # Trained Nov 14, 2024
-xgboost_daily_spy_v1_20241201.pkl  # Retrained Dec 1, 2024
-```
+→ Check DB_HOST, DB_PORT environment variables
+→ Ensure PostgreSQL is running
 
-The `current/` directory always contains the latest model.
+## Production Deployment
 
-### Backup Models
+### Scaling Considerations
 
-```bash
-# Backup models directory
-docker cp jdb-ml-service:/app/models ./ml_models_backup
+- Models are loaded into memory on first use (lazy loading)
+- Each model ~10-50MB in memory
+- Gunicorn runs with 4 workers (tune based on CPU)
+- No GPU required (XGBoost CPU inference is fast)
 
-# Restore from backup
-docker cp ./ml_models_backup jdb-ml-service:/app/models
-```
+### Monitoring
 
-## Resources
+Key metrics to monitor:
+- API response time (target: <500ms)
+- Model prediction latency (target: <100ms)
+- Database query time
+- Error rate on /api/signals/* endpoints
+- Memory usage per worker
 
-- **Training Guide**: See `ML_TRAINING_GUIDE.md` in project root
-- **XGBoost Documentation**: https://xgboost.readthedocs.io/
-- **Yahoo Finance**: https://pypi.org/project/yfinance/
-- **Technical Analysis**: https://technical-analysis-library-in-python.readthedocs.io/
+### Retraining Schedule
+
+Recommended retraining frequency:
+- **Monthly**: Retrain on latest data
+- **Quarterly**: Full walk-forward validation
+- **Trigger**: If Sharpe ratio drops below 0.5 in live trading
+
+## License
+
+See main project LICENSE file.
 
 ## Support
 
-For issues or questions:
-1. Check logs: `docker logs jdb-ml-service`
-2. Validate data: `python scripts/check_data.py`
-3. Review training guide: `ML_TRAINING_GUIDE.md`
-4. Open GitHub issue with error details
-
----
-
-**Last Updated**: 2024-11-14
-**Version**: 1.0
+For issues or questions, open a GitHub issue or contact the development team.

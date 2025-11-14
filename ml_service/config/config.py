@@ -1,159 +1,121 @@
 """
-ML Service Configuration
-Contains all configuration parameters for training, data ingestion, and model serving.
+Configuration for ML Service
 """
-
 import os
-from pathlib import Path
-from typing import List, Dict, Any
-from pydantic_settings import BaseSettings
-from pydantic import Field
+from dataclasses import dataclass
+from typing import Dict, Any
 
 
-class Settings(BaseSettings):
-    """Application settings with validation."""
+@dataclass
+class DatabaseConfig:
+    """Database connection configuration"""
+    host: str = os.getenv("DB_HOST", "localhost")
+    port: int = int(os.getenv("DB_PORT", "5432"))
+    database: str = os.getenv("DB_NAME", "jdb_trading")
+    user: str = os.getenv("DB_USER", "jdb")
+    password: str = os.getenv("DB_PASSWORD", "password")
 
-    # Directories
-    BASE_DIR: Path = Path(__file__).parent.parent
-    DATA_DIR: Path = BASE_DIR / "data"
-    MODELS_DIR: Path = BASE_DIR / "models"
-    LOGS_DIR: Path = BASE_DIR / "logs"
-
-    # API Settings
-    API_HOST: str = Field(default="0.0.0.0", env="API_HOST")
-    API_PORT: int = Field(default=5000, env="API_PORT")
-    DEBUG: bool = Field(default=False, env="DEBUG")
-
-    # Model Training Parameters
-    TRAIN_TEST_SPLIT: float = 0.8
-    RANDOM_STATE: int = 42
-    N_ESTIMATORS: int = 200
-    MAX_DEPTH: int = 6
-    LEARNING_RATE: float = 0.1
-    MIN_CHILD_WEIGHT: int = 1
-    SUBSAMPLE: float = 0.8
-    COLSAMPLE_BYTREE: float = 0.8
-    GAMMA: float = 0.0
-    REG_ALPHA: float = 0.0
-    REG_LAMBDA: float = 1.0
-
-    # Feature Engineering
-    SMA_PERIODS: List[int] = [20, 50, 200]
-    EMA_PERIODS: List[int] = [12, 26]
-    RSI_PERIOD: int = 14
-    MACD_FAST: int = 12
-    MACD_SLOW: int = 26
-    MACD_SIGNAL: int = 9
-    BB_PERIOD: int = 20
-    BB_STD: float = 2.0
-    ATR_PERIOD: int = 14
-
-    # Data Ingestion
-    DEFAULT_START_DATE: str = "2020-01-01"
-    DEFAULT_END_DATE: str = "2024-11-14"
-    DATA_INTERVAL: str = "1d"  # 1d, 1wk, 1mo
-
-    # Prediction Thresholds
-    BUY_THRESHOLD: float = 0.6
-    SELL_THRESHOLD: float = 0.6
-    MIN_CONFIDENCE: float = 0.5
-
-    # Model Versioning
-    MODEL_VERSION: str = "v1"
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
+    @property
+    def connection_string(self) -> str:
+        return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
 
 
-# Global settings instance
-settings = Settings()
+@dataclass
+class ModelConfig:
+    """XGBoost model hyperparameters"""
+    n_estimators: int = 200
+    max_depth: int = 6
+    learning_rate: float = 0.05
+    subsample: float = 0.8
+    colsample_bytree: float = 0.8
+    objective: str = 'binary:logistic'
+    eval_metric: str = 'logloss'
+    early_stopping_rounds: int = 20
+    random_state: int = 42
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'n_estimators': self.n_estimators,
+            'max_depth': self.max_depth,
+            'learning_rate': self.learning_rate,
+            'subsample': self.subsample,
+            'colsample_bytree': self.colsample_bytree,
+            'objective': self.objective,
+            'eval_metric': self.eval_metric,
+            'random_state': self.random_state
+        }
 
 
-# Model hyperparameters dictionary
-def get_xgboost_params() -> Dict[str, Any]:
-    """Get XGBoost hyperparameters."""
-    return {
-        "n_estimators": settings.N_ESTIMATORS,
-        "max_depth": settings.MAX_DEPTH,
-        "learning_rate": settings.LEARNING_RATE,
-        "min_child_weight": settings.MIN_CHILD_WEIGHT,
-        "subsample": settings.SUBSAMPLE,
-        "colsample_bytree": settings.COLSAMPLE_BYTREE,
-        "gamma": settings.GAMMA,
-        "reg_alpha": settings.REG_ALPHA,
-        "reg_lambda": settings.REG_LAMBDA,
-        "random_state": settings.RANDOM_STATE,
-        "objective": "binary:logistic",
-        "eval_metric": "logloss",
-        "tree_method": "hist",
-        "verbosity": 1,
-    }
+@dataclass
+class TrainingConfig:
+    """Training pipeline configuration"""
+    # Data settings
+    data_source: str = os.getenv("DATA_SOURCE", "parquet")  # "parquet" or "postgres"
+    data_dir: str = os.getenv("DATA_DIR", "/data")  # Directory for Parquet files
+    start_date: str = "2015-01-01"
+    end_date: str = "2024-12-31"
+    min_samples: int = 200
+
+    # Walk-forward validation
+    train_window_years: int = 5
+    validation_window_years: int = 1
+
+    # Label generation
+    daily_horizon_days: int = 30
+    daily_threshold: float = 0.05  # 5% return
+
+    weekly_horizon_days: int = 60
+    weekly_threshold: float = 0.10  # 10% return
+
+    monthly_horizon_days: int = 365
+    monthly_threshold: float = 0.20  # 20% return
+
+    # Feature engineering
+    ma_periods: list = None
+    rsi_period: int = 14
+    bb_period: int = 20
+    bb_std: int = 2
+    atr_period: int = 14
+    volume_ma_period: int = 20
+
+    def __post_init__(self):
+        if self.ma_periods is None:
+            self.ma_periods = [20, 50, 200]
 
 
-# Feature list
-def get_feature_columns() -> List[str]:
-    """Get list of feature columns for model training."""
-    features = []
-
-    # Moving averages
-    for period in settings.SMA_PERIODS:
-        features.append(f"sma_{period}")
-
-    for period in settings.EMA_PERIODS:
-        features.append(f"ema_{period}")
-
-    # Technical indicators
-    features.extend(
-        [
-            f"rsi_{settings.RSI_PERIOD}",
-            "macd",
-            "macd_signal",
-            "macd_diff",
-            f"bb_upper_{settings.BB_PERIOD}",
-            f"bb_middle_{settings.BB_PERIOD}",
-            f"bb_lower_{settings.BB_PERIOD}",
-            "bb_width",
-            f"atr_{settings.ATR_PERIOD}",
-            "volume_sma_20",
-            "volume_ratio",
-        ]
-    )
-
-    # Price-based features
-    features.extend(
-        [
-            "returns",
-            "log_returns",
-            "high_low_range",
-            "close_open_ratio",
-        ]
-    )
-
-    return features
+@dataclass
+class BacktestConfig:
+    """Backtesting configuration"""
+    initial_capital: float = 10000.0
+    confidence_threshold: float = 0.6  # Only trade if confidence > 60%
+    max_position_size: float = 1.0  # 100% of capital per trade
+    commission: float = 0.0  # No commission for stocks (many brokers offer free trades)
+    slippage: float = 0.001  # 0.1% slippage
 
 
-# Ensure directories exist
-def init_directories():
-    """Create necessary directories if they don't exist."""
-    settings.DATA_DIR.mkdir(parents=True, exist_ok=True)
-    settings.MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    settings.LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    (settings.MODELS_DIR / "current").mkdir(parents=True, exist_ok=True)
+@dataclass
+class APIConfig:
+    """API server configuration"""
+    host: str = os.getenv("API_HOST", "0.0.0.0")
+    port: int = int(os.getenv("API_PORT", "5000"))
+    debug: bool = os.getenv("FLASK_ENV", "production") == "development"
+    model_path: str = os.getenv("MODEL_PATH", "/app/models")
+    cors_origins: str = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001,http://localhost:8080")
+
+    @property
+    def cors_origins_list(self) -> list:
+        return self.cors_origins.split(",")
 
 
-if __name__ == "__main__":
-    # Test configuration
-    print("ML Service Configuration")
-    print("=" * 50)
-    print(f"Base Directory: {settings.BASE_DIR}")
-    print(f"Data Directory: {settings.DATA_DIR}")
-    print(f"Models Directory: {settings.MODELS_DIR}")
-    print(f"API Host: {settings.API_HOST}:{settings.API_PORT}")
-    print(f"\nXGBoost Parameters:")
-    for key, value in get_xgboost_params().items():
-        print(f"  {key}: {value}")
-    print(f"\nFeatures ({len(get_feature_columns())}):")
-    for feature in get_feature_columns():
-        print(f"  - {feature}")
+class Config:
+    """Main configuration class"""
+    def __init__(self):
+        self.database = DatabaseConfig()
+        self.model = ModelConfig()
+        self.training = TrainingConfig()
+        self.backtest = BacktestConfig()
+        self.api = APIConfig()
+
+
+# Global config instance
+config = Config()
