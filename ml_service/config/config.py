@@ -50,6 +50,8 @@ class ModelConfig:
 class TrainingConfig:
     """Training pipeline configuration"""
     # Data settings
+    data_source: str = os.getenv("DATA_SOURCE", "parquet")  # "parquet" or "postgres"
+    data_dir: str = os.getenv("DATA_DIR", "/data")  # Directory for Parquet files
     start_date: str = "2015-01-01"
     end_date: str = "2024-12-31"
     min_samples: int = 200

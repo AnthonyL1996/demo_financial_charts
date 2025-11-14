@@ -71,9 +71,12 @@ services:
       API_PORT: 5000
       FLASK_ENV: production
       MODEL_PATH: /app/models
+      DATA_SOURCE: parquet
+      DATA_DIR: /data
       CORS_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:8080
     volumes:
       - ml_models:/app/models
+      - ${PARQUET_DATA_DIR:-./data}:/data:ro  # Mount Parquet files (read-only)
     depends_on:
       postgres:
         condition: service_healthy
