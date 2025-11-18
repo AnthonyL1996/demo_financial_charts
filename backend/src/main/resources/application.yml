@@ -69,6 +69,30 @@ jwt:
   access-token-cookie-name: access_token
   refresh-token-cookie-name: refresh_token
 
+# Rate Limiting Configuration
+rate-limit:
+  enabled: true
+  # Login endpoint: 5 attempts per 15 minutes per IP
+  login:
+    capacity: 5
+    refill-tokens: 5
+    refill-duration-minutes: 15
+  # Register endpoint: 3 attempts per hour per IP
+  register:
+    capacity: 3
+    refill-tokens: 3
+    refill-duration-minutes: 60
+  # Refresh token: 10 attempts per 5 minutes per IP
+  refresh:
+    capacity: 10
+    refill-tokens: 10
+    refill-duration-minutes: 5
+  # General API: 100 requests with 20 tokens/second refill
+  api:
+    capacity: 100
+    refill-tokens: 20
+    refill-duration-seconds: 1
+
 # Logging
 logging:
   level:

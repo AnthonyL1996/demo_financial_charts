@@ -1,5 +1,6 @@
 package com.jdb.trading.security
 
+import com.jdb.trading.security.ratelimit.RateLimitFilter
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.http.HttpMethod
@@ -21,13 +22,14 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource
 
 /**
  * Spring Security configuration
- * Configures JWT authentication, CORS, and authorization rules
+ * Configures JWT authentication, CORS, rate limiting, and authorization rules
  */
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
 class SecurityConfiguration(
     private val jwtAuthenticationFilter: JwtAuthenticationFilter,
+    private val rateLimitFilter: RateLimitFilter,
     private val customUserDetailsService: CustomUserDetailsService
 ) {
 
@@ -72,8 +74,11 @@ class SecurityConfiguration(
             // Authentication provider
             .authenticationProvider(authenticationProvider())
 
-            // Add JWT filter before Spring Security's authentication filter
-            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter::class.java)
+            // Add rate limit filter first (before any authentication)
+            .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter::class.java)
+
+            // Add JWT filter after rate limiting
+            .addFilterAfter(jwtAuthenticationFilter, RateLimitFilter::class.java)
 
         return http.build()
     }
